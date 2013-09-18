@@ -27,7 +27,7 @@
   <xsl:param name="chunk.level" select="0"/>
 
   <!-- Specify whether to generate a root chunk -->
-  <xsl:param name="generate.root.chunk" select="1"/>
+  <xsl:param name="generate.root.chunk" select="0"/>
 
   <!-- Specify the filename for the root chunk, if $generate.root.chunk is enabled -->
   <xsl:param name="root.chunk.filename" select="'index.html'"/>
@@ -50,6 +50,10 @@ sect5:s
 
   <!-- By default for chunked output, turn on footnote processing into separate marker/hyperlink and footnote content -->
   <xsl:param name="process.footnotes" select="1"/>
+
+  <!-- Specify filename containing a custom "wrapper" for chunked content (expectation is that it will contain <html>, <head>, and <body> elements -->
+  <!-- Use the PI <?yield?> in the location in which the HTML chunk content should be inserted -->
+  <xsl:param name="custom.chunk.wrapper"/>
 
   <xsl:template match="/h:html">
     <xsl:apply-templates select="h:body"/>
@@ -134,6 +138,36 @@ sect5:s
     <xsl:value-of select="$full-output-filename"/>
   </xsl:template>
 
+  <xsl:template match="@*|node()" mode="process-chunk-wrapper">
+    <xsl:param name="chunk.content"/>
+    <!-- Copy to output everything in chunk wrapper that is not the <?yield?> PI -->
+    <xsl:copy>
+      <xsl:apply-templates select="@*|node()" mode="process-chunk-wrapper">
+	<xsl:with-param name="chunk.content" select="$chunk.content"/>
+      </xsl:apply-templates>
+    </xsl:copy>
+  </xsl:template>
+
+  <xsl:template match="h:script" mode="process-chunk-wrapper">
+    <xsl:param name="chunk.content"/>
+    <!-- Special handling to ensure <script> tags are not self-closing (i.e., no <script/>), as that causes problems in many browsers -->
+    <xsl:copy>
+      <xsl:apply-templates select="@*|node()" mode="process-chunk-wrapper">
+	<xsl:with-param name="chunk.content" select="$chunk.content"/>
+      </xsl:apply-templates>
+      <xsl:if test="not(node())">
+	<xsl:text> </xsl:text>
+      </xsl:if>
+    </xsl:copy>
+  </xsl:template>
+
+  <xsl:template match="processing-instruction('yield')" mode="process-chunk-wrapper">
+    <xsl:param name="chunk.content"/>
+    <!-- This is our <?yield?> PI, which is the chunk content placeholder -->
+    <!-- Drop the content in here -->
+    <xsl:copy-of select="exsl:node-set($chunk.content)"/>
+  </xsl:template>
+
   <xsl:template name="write-chunk">
     <xsl:param name="output-filename"/>
     <xsl:variable name="full-output-filename">
@@ -145,6 +179,17 @@ sect5:s
       <xsl:value-of select="'&lt;!DOCTYPE html&gt;'" disable-output-escaping="yes"/>
       <!-- Only add the <html>/<head> if they don't already exist -->
       <xsl:choose>
+	<!-- If there's a custom chunk wrapper, use that to wrap the output HTML -->
+	<xsl:when test="$custom.chunk.wrapper != ''">
+	  <xsl:variable name="chunk.content">
+	    <xsl:apply-imports/>
+	  </xsl:variable>
+	  <xsl:variable name="chunk.wrapper" select="document($custom.chunk.wrapper)"/>
+	  <xsl:apply-templates select="exsl:node-set($chunk.wrapper)" mode="process-chunk-wrapper">
+	    <xsl:with-param name="chunk.content" select="$chunk.content"/>
+	  </xsl:apply-templates>
+	</xsl:when>
+	<!-- Otherwise, go ahead and do the following default chunk processing -->
 	<xsl:when test="not(self::h:html)">
 	  <html>
 	    <!-- ToDo: What else do we want in the <head>? -->
